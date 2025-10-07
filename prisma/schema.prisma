@@ -1,0 +1,632 @@
+// schema.prisma
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+/////////////////////////////////////////////////
+//                    MODELS                    //
+/////////////////////////////////////////////////
+
+/// ------------------ USERS ------------------
+model User {
+  id             String         @id @default(cuid())
+  firstName      String
+  lastName       String
+  email          String         @unique
+  phoneNumber    String?        // keep as string for international numbers
+  profileImage   String?
+  fitnessGoal    FitnessGoal?
+  age            Int?
+  weight         Float?
+  height         Float?
+  createdAt      DateTime       @default(now())
+  role           UserRole       @default(USER) // ADMIN, MODERATOR, USER
+
+  exerciseReviews ExerciseReview[]
+
+  // relations
+  preferences    Preference?
+  workouts       Workout[]              // user personal workout instances (records)
+  customWorkouts CustomWorkout[]        // workouts designed by the user
+  progress       Progress[]
+  notifications  Notification[]
+  articles       Article[]              @relation("UserArticles")
+  favorites      Favorite[]             // favorites for workouts / plans / products
+  cart           Cart?
+  orders         Order[]                // orders placed by user
+  subscriptions  UserSubscription[]
+  reviews        ProductReview[]
+  createdPlans   WorkoutPlan[]          @relation("CreatedPlans") // plans this user created (could be admin)
+  createdProducts Product[]             @relation("CreatedProducts") // products created by this user (admin)
+  createdExercises Exercise[]  @relation("UserCreatedExercises")
+  @@index([email])
+}
+
+/// ------------------ PREFERENCES ------------------
+model Preference {
+  id                   String         @id @default(cuid())
+  workoutTypes         WorkoutType[]  // array of enums
+  experienceLevel      ExperienceLevel
+  restTimer            Int            @default(60)
+  notificationsEnabled Boolean        @default(true)
+  units                UnitSystem     @default(METRIC)
+
+  userId               String         @unique
+  user                 User           @relation(fields: [userId], references: [id])
+}
+
+/// ------------------ WORKOUT / EXERCISES ------------------
+
+// Atomic exercise definition
+model Exercise {
+  id            String                 @id @default(cuid())
+  name          String
+  slug          String?                @unique
+  description   String?
+  category      ExerciseCategory
+  muscleGroups  String[]               // e.g. ["chest","triceps"]
+  equipment     String?
+  videoUrl      String?
+  instructions  String[]               // step by step
+  defaultSets   Int?
+  defaultReps   Int?
+
+  // relations
+  planWorkouts  PlanWorkoutExercise[]
+  userWorkouts  UserWorkoutExercise[]
+  customInWorkouts CustomWorkoutExercise[]
+  progress      Progress[]
+  reviews       ExerciseReview[]
+
+  createdById String?
+  createdBy   User?    @relation("UserCreatedExercises", fields: [createdById], references: [id])
+
+  createdAt     DateTime               @default(now())
+
+  @@index([slug])
+}
+
+// A concrete workout session (user scheduled/completed workout)
+model Workout {
+  id            String               @id @default(cuid())
+  date          DateTime
+  completed     Boolean              @default(false)
+  notes         String?
+
+  userId        String
+  user          User                 @relation(fields: [userId], references: [id])
+
+  workoutPlanId String?
+  workoutPlan   WorkoutPlan?         @relation(fields: [workoutPlanId], references: [id])
+
+  exercises     UserWorkoutExercise[]
+  durationMin   Int?                 // optional duration
+  caloriesBurned Float?
+
+  createdAt     DateTime             @default(now())
+  @@index([userId, date])
+}
+
+// mapping user workout -> exercise performed
+model UserWorkoutExercise {
+  id         String    @id @default(cuid())
+  sets       Int
+  reps       Int[]     // allow varying reps per set
+  weightUsed Float[]   // corresponding per set
+
+  workoutId  String
+  workout    Workout   @relation(fields: [workoutId], references: [id])
+
+  exerciseId String
+  exercise   Exercise  @relation(fields: [exerciseId], references: [id])
+}
+
+/// ------------------ WORKOUT PLANS (Flexible) ------------------
+
+// A plan can be admin or user created and is flexible (weeks, schedules)
+model WorkoutPlan {
+  id            String         @id @default(cuid())
+  title         String
+  slug          String?        @unique
+  description   String?
+  createdById   String?        // admin or user
+  createdBy     User?          @relation("CreatedPlans", fields: [createdById], references: [id])
+  level         ExperienceLevel?
+  isPublic      Boolean        @default(true)
+  durationWeeks Int?           // approximate length; optional
+  metadata      Json?          // flexible field for future attributes (e.g., difficulty scores)
+
+  // scheduling model: you can store a plan schedule as JSON or normalized via PlanWorkout
+  PlanWorkouts      PlanWorkout[]  // each PlanWorkout represents a day/slot in the plan
+  workouts  Workout[]
+
+  favorites     Favorite[]     // users who favorited this plan
+  createdAt     DateTime       @default(now())
+
+  @@index([slug])
+}
+
+// A PlanWorkout groups exercises for a specific day/slot within a plan
+model PlanWorkout {
+  id          String               @id @default(cuid())
+  name        String?              // e.g., "Day 1 - Push"
+  weekNumber  Int?                 // which week (nullable, for weekly cycles)
+  dayOfWeek   Int?                 // 1..7 or null if custom schedule
+  order       Int?                 // ordering within the week/day
+
+  planId      String
+  plan        WorkoutPlan          @relation(fields: [planId], references: [id])
+  exercises   PlanWorkoutExercise[]
+  notes       String?
+
+  @@index([planId, weekNumber, dayOfWeek])
+}
+
+// relation table between PlanWorkout and Exercise
+model PlanWorkoutExercise {
+  id            String      @id @default(cuid())
+  planWorkoutId String
+  planWorkout   PlanWorkout @relation(fields: [planWorkoutId], references: [id])
+
+  exerciseId    String
+  exercise      Exercise    @relation(fields: [exerciseId], references: [id])
+
+  sets          Int?
+  reps          Int?
+  order         Int?
+  metadata      Json?       // e.g., tempo, rest, variations
+}
+
+/// ------------------ CUSTOM WORKOUTS (User-built reusable templates) ------------------
+model CustomWorkout {
+  id          String                    @id @default(cuid())
+  title       String
+  description String?
+  userId      String
+  user        User                      @relation(fields: [userId], references: [id])
+  exercises   CustomWorkoutExercise[]
+  createdAt   DateTime                  @default(now())
+
+  favorites   Favorite[]                // users who favorited this custom workout
+}
+
+model CustomWorkoutExercise {
+  id                String        @id @default(cuid())
+  customWorkoutId   String
+  customWorkout     CustomWorkout @relation(fields: [customWorkoutId], references: [id])
+
+  exerciseId        String
+  exercise          Exercise      @relation(fields: [exerciseId], references: [id])
+
+  sets              Int?
+  reps              Int?
+  order             Int?
+  metadata          Json?
+}
+
+/// ------------------ PROGRESS TRACKING ------------------
+model Progress {
+  id         String        @id @default(cuid())
+  date       DateTime
+  metric     ProgressMetric
+  value      Float
+  unit       String?
+
+  userId     String
+  user       User          @relation(fields: [userId], references: [id])
+
+  exerciseId String?
+  exercise   Exercise?     @relation(fields: [exerciseId], references: [id])
+
+  createdAt  DateTime      @default(now())
+
+  @@index([userId, date])
+}
+
+/// ------------------ NOTIFICATIONS ------------------
+model Notification {
+  id        String             @id @default(cuid())
+  message   String
+  type      NotificationType
+  sentAt    DateTime
+  read      Boolean            @default(false)
+
+  userId    String
+  user      User               @relation(fields: [userId], references: [id])
+}
+
+/// ------------------ ARTICLES ------------------
+model Article {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  category    ArticleCategory
+  author      String
+  publishedAt DateTime
+
+  users       User[]   @relation("UserArticles")
+}
+
+/// ------------------ FAVORITES (Generic) ------------------
+// Generic favorites table to allow favoriting workouts, workoutPlans, products, custom workouts, etc.
+model Favorite {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  // polymorphic references: store type & targetId
+  targetType FavoriteTargetType
+  targetId   String
+
+  workoutPlanId   String?
+  workoutPlan     WorkoutPlan?   @relation(fields: [workoutPlanId], references: [id])
+
+  customWorkoutId String?
+  customWorkout   CustomWorkout? @relation(fields: [customWorkoutId], references: [id])
+
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, targetType])
+}
+
+/// ------------------ REVIEWS ------------------
+model ProductReview {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  rating     Int      @default(5) // 1..5
+  title      String?
+  body       String?
+  createdAt  DateTime @default(now())
+}
+
+/// Optional: Exercise reviews
+model ExerciseReview {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id])
+  rating     Int      @default(5)
+  body       String?
+  createdAt  DateTime @default(now())
+}
+
+/////////////////////////////////////////////////
+//                    SHOP                      //
+/////////////////////////////////////////////////
+
+// High level product
+model Product {
+  id            String           @id @default(cuid())
+  title         String
+  slug          String?          @unique
+  description   String?
+  createdById   String?          // admin user creating product
+  createdBy     User?            @relation("CreatedProducts", fields: [createdById], references: [id])
+  categories    Category[]       @relation("ProductCategories")
+  tags          String[]         // quick tags
+  metadata      Json?            // flexible meta (size charts, materials, etc.)
+  images        String[]         // image URLs
+  isActive      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+
+  variants      ProductVariant[]
+  reviews       ProductReview[]
+  inventory     Inventory[]      // inventory across variants / warehouses
+  orderItems    OrderItem[]
+  cartItems     CartItem[]
+
+  @@index([slug])
+}
+
+// Each product can have multiple variants (size, color)
+model ProductVariant {
+  id         String   @id @default(cuid())
+  sku        String?  @unique
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  title      String?  // e.g., "Red / M"
+  attributes Json?    // flexible attributes: { color: "red", size: "M" }
+  price      Decimal  @db.Decimal(10,2)
+  compareAtPrice Decimal? @db.Decimal(10,2)
+  weightKg   Float?
+  images     String[]
+  isActive   Boolean  @default(true)
+
+  inventory  Inventory[]
+  orderItems OrderItem[]
+  cartItems  CartItem[]
+
+  @@index([sku])
+}
+
+// categories (hierarchical optionally)
+model Category {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String?    @unique
+  parentId  String?
+  parent    Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryToCategory")
+  products  Product[]  @relation("ProductCategories")
+
+  metadata  Json?
+}
+
+// Inventory per variant (or product-level if no variant)
+model Inventory {
+  id              String    @id @default(cuid())
+  variantId       String?   // nullable to allow product-level inventory
+  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+  productId       String
+  product         Product   @relation(fields: [productId], references: [id])
+  sku             String?
+  quantity        Int       @default(0)
+  reserved        Int       @default(0) // reserved for pending orders
+  warehouse       String?
+  lowStockThreshold Int? 
+
+  lastUpdated     DateTime  @updatedAt
+
+  @@index([productId, variantId])
+}
+
+// Orders and payments
+model Order {
+  id            String        @id @default(cuid())
+  orderNumber   String        @unique
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  status        OrderStatus   @default(PENDING)
+  items         OrderItem[]
+  subtotal      Decimal       @db.Decimal(10,2)
+  shipping      Decimal?      @db.Decimal(10,2)
+  tax           Decimal?      @db.Decimal(10,2)
+  total         Decimal       @db.Decimal(10,2)
+  currency      String        @default("USD")
+  billingInfo   Json?         // encrypted or tokenized billing snapshot
+  shippingInfo  Json?
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime?     
+
+  payments      Payment[]
+  @@index([userId, orderNumber])
+}
+
+model OrderItem {
+  id            String    @id @default(cuid())
+  orderId       String
+  order         Order     @relation(fields: [orderId], references: [id])
+  productId     String
+  product       Product   @relation(fields: [productId], references: [id])
+  variantId     String?
+  variant       ProductVariant? @relation(fields: [variantId], references: [id])
+  title         String    // snapshot: product title at purchase time
+  sku           String?
+  quantity      Int
+  unitPrice     Decimal   @db.Decimal(10,2)
+  totalPrice    Decimal   @db.Decimal(10,2)
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+
+  @@index([orderId])
+}
+
+// Payments
+model Payment {
+  id            String        @id @default(cuid())
+  orderId       String
+  order         Order         @relation(fields: [orderId], references: [id])
+  provider      String        // e.g., stripe, paypal
+  providerRef   String?       // external payment id
+  amount        Decimal       @db.Decimal(10,2)
+  currency      String
+  status        PaymentStatus
+  method        String?
+  rawResponse   Json?         // store provider response
+  createdAt     DateTime      @default(now())
+
+  @@index([providerRef])
+}
+
+// Simple shopping cart for user (optional)
+model Cart {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id])
+  items     CartItem[]
+  metadata  Json?
+  updatedAt DateTime  @updatedAt
+}
+
+model CartItem {
+  id          String   @id @default(cuid())
+  cartId      String
+  cart        Cart     @relation(fields: [cartId], references: [id])
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  variantId   String?
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
+  quantity    Int
+  unitPrice   Decimal  @db.Decimal(10,2)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([cartId])
+}
+
+/// ------------------ SUBSCRIPTIONS & PLANS ------------------
+
+// Plans that can be free, trial, or paid
+model SubscriptionPlan {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String?   @unique
+  description   String?
+  price         Decimal   @db.Decimal(10,2) @default(0)
+  billingCycle  BillingCycle @default(MONTHLY)
+  trialDays     Int? 
+  isActive      Boolean   @default(true)
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+
+  subscriptions UserSubscription[]
+}
+
+// User subscription instances
+model UserSubscription {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+  planId         String
+  plan           SubscriptionPlan @relation(fields: [planId], references: [id])
+  provider       String?          // stripe, paypal etc.
+  providerRef    String?          // external subscription id
+  status         SubscriptionStatus @default(ACTIVE)
+  startedAt      DateTime?
+  currentPeriodEnd DateTime?
+  cancelAtPeriodEnd Boolean?      @default(false)
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+
+  @@index([userId, planId])
+}
+
+/////////////////////////////////////////////////
+//                   ENUMS                      //
+/////////////////////////////////////////////////
+
+enum FitnessGoal {
+  MUSCLE_GAIN
+  WEIGHT_LOSS
+  ENDURANCE
+  GENERAL_FITNESS
+}
+
+enum ExperienceLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum WorkoutType {
+  GYM
+  BODYWEIGHT
+  CARDIO
+  YOGA
+  OTHER
+}
+
+enum ProgressMetric {
+  WEIGHT_LIFTED
+  BODY_WEIGHT
+  BODY_FAT
+  DISTANCE_RUN
+  CALORIES_BURNED
+}
+
+enum NotificationType {
+  REMINDER
+  ALERT
+  SYSTEM
+}
+
+enum ArticleCategory {
+  GYM_BASICS
+  NUTRITION
+  WELLNESS
+  TRAINING
+}
+
+enum ExerciseCategory {
+  STRENGTH
+  CARDIO
+  FLEXIBILITY
+  BALANCE
+}
+
+enum UnitSystem {
+  METRIC
+  IMPERIAL
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FULFILLED
+  CANCELED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  WALLET
+  BANK_TRANSFER
+  OTHER
+}
+
+enum FavoriteTargetType {
+  WORKOUT
+  WORKOUT_PLAN
+  PRODUCT
+  CUSTOM_WORKOUT
+  ARTICLE
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+  ONE_TIME
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  UNPAID
+}
+
+enum FavoriteType {
+  LIKED
+  SAVED
+}
+
+/////////////////////////////////////////////////
+//                 NOTES & EXTENSIONS           //
+/////////////////////////////////////////////////
+
+/*
+  - Use `metadata Json?` on multiple models to allow future expansion without schema migration for minor attributes.
+  - Prices use Decimal for precision; Prisma's Decimal requires corresponding handling in your app.
+  - Cart is optional but useful to implement checkout flow. You can also implement reservations on Inventory when an Order is created.
+  - Favorite is a polymorphic approach: `targetType` + `targetId`. For stronger referential integrity you'd add separate tables or use a union-like approach.
+  - WorkoutPlan + PlanWorkout + PlanWorkoutExercise give a normalized schedule: supports "3 days per week", week cycles, custom ordering, etc.
+  - CustomWorkout allows users to design their own workouts based on available Exercise entries.
+  - ProductVariant + Inventory supports multi-warehouse or multi-variant stock tracking.
+  - SubscriptionPlan/UserSubscription implement future premium features and link to payments and provider references.
+  - Consider adding triggers or application-level checks to ensure Inventory.reserved and quantity remain consistent during order lifecycle.
+*/
+
