@@ -19,6 +19,7 @@ model User {
   firstName      String
   lastName       String
   email          String         @unique
+   password       String 
   phoneNumber    String?        // keep as string for international numbers
   profileImage   String?
   fitnessGoal    FitnessGoal?
