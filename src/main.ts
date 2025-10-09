@@ -11,7 +11,7 @@ async function bootstrap() {
     .setVersion('1.0')
     .addBearerAuth(
       { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'access-token', 
+      'access-token',
     )
     .build();
 
@@ -19,10 +19,11 @@ async function bootstrap() {
   SwaggerModule.setup('api', app, document);
 
   app.enableCors({
-    origin: "*",
+    origin: '*',
     credentials: false,
   });
 
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(process.env.PORT ?? 4000);
 }
+// eslint-disable-next-line @typescript-eslint/no-floating-promises
 bootstrap();
