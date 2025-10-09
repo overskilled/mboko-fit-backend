@@ -23,7 +23,7 @@ async function bootstrap() {
     credentials: false,
   });
 
-  await app.listen(process.env.PORT ?? 4000);
+  await app.listen(process.env.PORT ?? 8000);
 }
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
 bootstrap();
