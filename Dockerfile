@@ -15,7 +15,6 @@ RUN yarn install --production=false
 # Assurez-vous que votre schéma est à la racine, sinon ajustez le chemin
 COPY prisma/schema.prisma ./prisma/
 
-# **<<<<<< AJOUTER CETTE LIGNE CRUCIALE >>>>>>**
 # Générer les types TypeScript de Prisma
 RUN npx prisma generate
 
@@ -26,28 +25,23 @@ COPY . .
 RUN npm run build
 
 # --- ÉTAPE 2: PRODUCTION (RUNNING STAGE) ---
-# Utiliser une image plus petite pour l'exécution (sans les outils de dev)
 FROM node:22-alpine AS production
 
 # Définir le répertoire de travail
-WORKDIR /app
+WORKDIR /usr/src/app 
+# Utiliser un répertoire standard pour éviter les conflits. L'instance va chercher dans ce WORKDIR.
 
-# Exposer le port que Koyeb attend (8000)
-# Cela correspond à votre app.listen(process.env.PORT ?? 8000)
 EXPOSE 8000
 
-# Copier UNIQUEMENT les dépendances de production
+# Copie UNIQUEMENT les dépendances de production
 COPY package*.json ./
 COPY yarn.lock ./
-
-# Installer SEULEMENT les dépendances de production (plus rapide et plus petit)
-# 'npm ci' est souvent plus sûr pour les images Docker que 'npm install'
 RUN yarn install --production=true
 
-# Copier le code compilé depuis l'étape 'builder'
-# C'est la ligne CRUCIALE qui garantit que /dist est présent
+# LIGNE CRUCIALE : Copie le dossier 'dist' compilé DEPUIS l'étape 'builder'
+# Copie le CONTENU de /app/dist vers /usr/src/app/dist
 COPY --from=builder /app/dist ./dist
 
-# Commande de démarrage (le point d'entrée de l'application)
-# Utiliser la commande de production pure : node dist/main
+# Commande de démarrage pure
+# Le WORKDIR est maintenant /usr/src/app, donc on démarre depuis ./dist/main
 CMD [ "node", "dist/main" ]
