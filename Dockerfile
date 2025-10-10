@@ -1,24 +1,29 @@
 # --- ÉTAPE 1: CONSTRUCTION (BUILD STAGE) ---
-# Utiliser une image Node.js récente pour la compilation
 FROM node:22-alpine AS builder
 
 # Définir le répertoire de travail
 WORKDIR /app
 
-# Copier les fichiers de définition de dépendances pour profiter du cache Docker
+# Copier les fichiers de définition de dépendances
 COPY package*.json ./
 COPY yarn.lock ./
 
-# Installer les dépendances
-# Utilisez yarn si votre projet utilise yarn, sinon npm
+# Installer les dépendances (y compris devDependencies pour la compilation et Prisma)
 RUN yarn install --production=false
+
+# Copier le fichier schema.prisma (crucial pour la génération)
+# Assurez-vous que votre schéma est à la racine, sinon ajustez le chemin
+COPY prisma/schema.prisma ./prisma/
+
+# **<<<<<< AJOUTER CETTE LIGNE CRUCIALE >>>>>>**
+# Générer les types TypeScript de Prisma
+RUN npx prisma generate
 
 # Copier le reste du code source
 COPY . .
 
 # Exécuter la commande de compilation de NestJS
 RUN npm run build
-
 
 # --- ÉTAPE 2: PRODUCTION (RUNNING STAGE) ---
 # Utiliser une image plus petite pour l'exécution (sans les outils de dev)
