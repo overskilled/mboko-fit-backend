@@ -10,13 +10,16 @@ import {
 import { UsersService } from './users.service';
 import { AuthGuard } from 'src/auth/guards/auth.guard';
 import { Prisma } from '@prisma/client';
+import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 
 @Controller('users')
 @UseGuards(AuthGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly usersService: UsersService) { }
 
   @Get()
+  @ApiBearerAuth('token') 
+  @ApiOperation({ summary: 'Get all users', description: 'Requires a valid JWT token' })
   async findAll() {
     return this.usersService.findAll();
   }

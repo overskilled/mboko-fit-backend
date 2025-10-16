@@ -1,0 +1,1 @@
+{"version":3,"file":"config.js","sourceRoot":"","sources":["../../../src/firestore/config.ts"],"names":[],"mappings":";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAAA,sDAAwC;AAGxC,0GAA4F;AAG5F,KAAK,CAAC,aAAa,CAAC;IAClB,UAAU,EAAE,KAAK,CAAC,UAAU,CAAC,IAAI,CAAC,cAAgC,CAAC;IACnE,aAAa,EAAE,oCAAoC;CACpD,CAAC,CAAC;AAGU,QAAA,MAAM,GAAG,KAAK,CAAC,OAAO,EAAE,CAAC,MAAM,EAAE,CAAC"}

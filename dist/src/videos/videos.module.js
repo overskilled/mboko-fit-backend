@@ -6,15 +6,18 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AppService = void 0;
+exports.VideosModule = void 0;
 const common_1 = require("@nestjs/common");
-let AppService = class AppService {
-    getHello() {
-        return 'WelCome to MbokoFit Api documentation!';
-    }
+const videos_controller_1 = require("./videos.controller");
+const videos_service_1 = require("./videos.service");
+let VideosModule = class VideosModule {
 };
-exports.AppService = AppService;
-exports.AppService = AppService = __decorate([
-    (0, common_1.Injectable)()
-], AppService);
-//# sourceMappingURL=app.service.js.map
+exports.VideosModule = VideosModule;
+exports.VideosModule = VideosModule = __decorate([
+    (0, common_1.Module)({
+        controllers: [videos_controller_1.VideosController],
+        providers: [videos_service_1.VideosService],
+        exports: [videos_service_1.VideosService],
+    })
+], VideosModule);
+//# sourceMappingURL=videos.module.js.map
