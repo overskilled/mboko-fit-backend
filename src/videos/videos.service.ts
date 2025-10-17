@@ -16,6 +16,258 @@ export class VideosService {
   private readonly logger = new Logger(VideosService.name);
 
   /**
+   * Make specific video folder files public
+   */
+  async makeVideoFilesPublic(folderName: string): Promise<{ success: boolean; message: string; files: string[] }> {
+    try {
+      this.logger.log(`Making files public for video: ${folderName}`);
+
+      const [files] = await bucket.getFiles({
+        prefix: `videos/${folderName}/`
+      });
+
+      if (files.length === 0) {
+        throw new Error(`No files found for video: ${folderName}`);
+      }
+
+      this.logger.log(`Found ${files.length} files to make public`);
+
+      const processedFiles: string[] = [];
+      const errors: string[] = [];
+
+      // Process each file to make it public
+      for (const file of files) {
+        try {
+          // Check if file is already public
+          const [metadata] = await file.getMetadata();
+          const isPublic = metadata.acl?.some(entry =>
+            entry.entity === 'allUsers' && entry.role === 'READER'
+          );
+
+          if (!isPublic) {
+            await file.makePublic();
+            this.logger.log(`✅ Made public: ${file.name}`);
+          } else {
+            this.logger.log(`ℹ️ Already public: ${file.name}`);
+          }
+
+          processedFiles.push(file.name);
+        } catch (fileError) {
+          const errorMsg = `Failed to make ${file.name} public: ${fileError.message}`;
+          this.logger.error(errorMsg);
+          errors.push(errorMsg);
+        }
+      }
+
+      if (errors.length > 0) {
+        throw new Error(`Some files failed to become public: ${errors.join(', ')}`);
+      }
+
+      return {
+        success: true,
+        message: `Successfully made ${processedFiles.length} files public for video: ${folderName}`,
+        files: processedFiles
+      };
+
+    } catch (error) {
+      this.logger.error(`Error making files public for ${folderName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Make ALL videos public (use with caution)
+   */
+  async makeAllVideosPublic(): Promise<{ success: boolean; message: string; processedVideos: string[] }> {
+    try {
+      this.logger.log('Making ALL videos public...');
+
+      const [files] = await bucket.getFiles({
+        prefix: 'videos/'
+      });
+
+      if (files.length === 0) {
+        throw new Error('No video files found in storage');
+      }
+
+      // Group files by video folder
+      const videoFolders = new Map<string, string[]>();
+
+      files.forEach(file => {
+        const pathParts = file.name.split('/');
+        if (pathParts.length >= 2) {
+          const folderName = pathParts[1]; // videos/{folderName}/file.ext
+          if (!videoFolders.has(folderName)) {
+            videoFolders.set(folderName, []);
+          }
+          videoFolders.get(folderName)!.push(file.name);
+        }
+      });
+
+      this.logger.log(`Found ${videoFolders.size} video folders`);
+
+      const processedVideos: string[] = [];
+      const errors: string[] = [];
+
+      // Process each video folder
+      for (const [folderName, filePaths] of videoFolders) {
+        try {
+          await this.makeVideoFilesPublic(folderName);
+          processedVideos.push(folderName);
+          this.logger.log(`✅ Processed video: ${folderName}`);
+        } catch (folderError) {
+          const errorMsg = `Failed to process ${folderName}: ${folderError.message}`;
+          this.logger.error(errorMsg);
+          errors.push(errorMsg);
+        }
+      }
+
+      if (errors.length > 0) {
+        return {
+          success: false,
+          message: `Processed ${processedVideos.length} videos with ${errors.length} errors: ${errors.join(', ')}`,
+          processedVideos
+        };
+      }
+
+      return {
+        success: true,
+        message: `Successfully made ${processedVideos.length} videos public`,
+        processedVideos
+      };
+
+    } catch (error) {
+      this.logger.error('Error making all videos public:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * List all video folders available
+   */
+  async listVideoFolders(): Promise<{ success: boolean; folders: string[] }> {
+    try {
+      const [files] = await bucket.getFiles({
+        prefix: 'videos/'
+      });
+
+      const folders = new Set<string>();
+
+      files.forEach(file => {
+        const pathParts = file.name.split('/');
+        if (pathParts.length >= 2) {
+          folders.add(pathParts[1]);
+        }
+      });
+
+      const folderList = Array.from(folders);
+
+      return {
+        success: true,
+        folders: folderList
+      };
+
+    } catch (error) {
+      this.logger.error('Error listing video folders:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if a video folder's files are public
+   */
+  async checkVideoAccess(folderName: string): Promise<{
+    success: boolean;
+    isPublic: boolean;
+    publicFiles: string[];
+    privateFiles: string[];
+    message: string;
+  }> {
+    try {
+      const [files] = await bucket.getFiles({
+        prefix: `videos/${folderName}/`
+      });
+
+      if (files.length === 0) {
+        throw new Error(`No files found for video: ${folderName}`);
+      }
+
+      const publicFiles: string[] = [];
+      const privateFiles: string[] = [];
+
+      for (const file of files) {
+        const [metadata] = await file.getMetadata();
+        const isPublic = metadata.acl?.some(entry =>
+          entry.entity === 'allUsers' && entry.role === 'READER'
+        );
+
+        if (isPublic) {
+          publicFiles.push(file.name);
+        } else {
+          privateFiles.push(file.name);
+        }
+      }
+
+      const isFullyPublic = privateFiles.length === 0;
+
+      return {
+        success: true,
+        isPublic: isFullyPublic,
+        publicFiles,
+        privateFiles,
+        message: isFullyPublic
+          ? `All ${publicFiles.length} files are public`
+          : `${publicFiles.length} files are public, ${privateFiles.length} files are private`
+      };
+
+    } catch (error) {
+      this.logger.error(`Error checking access for ${folderName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Force make files public with retry mechanism
+   */
+  async forceMakeVideoPublic(folderName: string, maxRetries: number = 3): Promise<{ success: boolean; message: string }> {
+    let lastError: Error;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logger.log(`Force making public attempt ${attempt}/${maxRetries} for: ${folderName}`);
+
+        const result = await this.makeVideoFilesPublic(folderName);
+
+        // Double check that files are actually public
+        const accessCheck = await this.checkVideoAccess(folderName);
+
+        if (!accessCheck.isPublic) {
+          throw new Error(`Files still not public after makePublic call: ${accessCheck.privateFiles.join(', ')}`);
+        }
+
+        this.logger.log(`✅ Successfully force made ${folderName} public on attempt ${attempt}`);
+        return {
+          success: true,
+          message: `Video '${folderName}' is now publicly accessible with ${result.files.length} files`
+        };
+
+      } catch (error) {
+        lastError = error;
+        this.logger.warn(`Attempt ${attempt} failed: ${error.message}`);
+
+        if (attempt < maxRetries) {
+          // Wait before retry (exponential backoff)
+          const retryDelay = 1000 * attempt;
+          this.logger.log(`Retrying in ${retryDelay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+      }
+    }
+
+    throw new Error(`Failed to make ${folderName} public after ${maxRetries} attempts: `);
+  }
+
+  /**
    * Transcode video to HLS format and upload to Firebase Storage
    */
   async transcodeToHLSAndUpload(fileBuffer: Buffer, filename: string): Promise<string> {
@@ -203,7 +455,7 @@ export class VideosService {
           const retryDelay = 2000 * attempt;
           this.logger.log(`Retrying in ${retryDelay}ms...`);
           await new Promise(resolve => setTimeout(resolve, retryDelay));
-          
+
         }
       }
     }

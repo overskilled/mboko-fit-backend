@@ -56,6 +56,191 @@ const promises_1 = require("fs/promises");
 const readdir = (0, util_1.promisify)(fs.readdir);
 let VideosService = VideosService_1 = class VideosService {
     logger = new common_1.Logger(VideosService_1.name);
+    async makeVideoFilesPublic(folderName) {
+        try {
+            this.logger.log(`Making files public for video: ${folderName}`);
+            const [files] = await config_1.bucket.getFiles({
+                prefix: `videos/${folderName}/`
+            });
+            if (files.length === 0) {
+                throw new Error(`No files found for video: ${folderName}`);
+            }
+            this.logger.log(`Found ${files.length} files to make public`);
+            const processedFiles = [];
+            const errors = [];
+            for (const file of files) {
+                try {
+                    const [metadata] = await file.getMetadata();
+                    const isPublic = metadata.acl?.some(entry => entry.entity === 'allUsers' && entry.role === 'READER');
+                    if (!isPublic) {
+                        await file.makePublic();
+                        this.logger.log(`✅ Made public: ${file.name}`);
+                    }
+                    else {
+                        this.logger.log(`ℹ️ Already public: ${file.name}`);
+                    }
+                    processedFiles.push(file.name);
+                }
+                catch (fileError) {
+                    const errorMsg = `Failed to make ${file.name} public: ${fileError.message}`;
+                    this.logger.error(errorMsg);
+                    errors.push(errorMsg);
+                }
+            }
+            if (errors.length > 0) {
+                throw new Error(`Some files failed to become public: ${errors.join(', ')}`);
+            }
+            return {
+                success: true,
+                message: `Successfully made ${processedFiles.length} files public for video: ${folderName}`,
+                files: processedFiles
+            };
+        }
+        catch (error) {
+            this.logger.error(`Error making files public for ${folderName}:`, error);
+            throw error;
+        }
+    }
+    async makeAllVideosPublic() {
+        try {
+            this.logger.log('Making ALL videos public...');
+            const [files] = await config_1.bucket.getFiles({
+                prefix: 'videos/'
+            });
+            if (files.length === 0) {
+                throw new Error('No video files found in storage');
+            }
+            const videoFolders = new Map();
+            files.forEach(file => {
+                const pathParts = file.name.split('/');
+                if (pathParts.length >= 2) {
+                    const folderName = pathParts[1];
+                    if (!videoFolders.has(folderName)) {
+                        videoFolders.set(folderName, []);
+                    }
+                    videoFolders.get(folderName).push(file.name);
+                }
+            });
+            this.logger.log(`Found ${videoFolders.size} video folders`);
+            const processedVideos = [];
+            const errors = [];
+            for (const [folderName, filePaths] of videoFolders) {
+                try {
+                    await this.makeVideoFilesPublic(folderName);
+                    processedVideos.push(folderName);
+                    this.logger.log(`✅ Processed video: ${folderName}`);
+                }
+                catch (folderError) {
+                    const errorMsg = `Failed to process ${folderName}: ${folderError.message}`;
+                    this.logger.error(errorMsg);
+                    errors.push(errorMsg);
+                }
+            }
+            if (errors.length > 0) {
+                return {
+                    success: false,
+                    message: `Processed ${processedVideos.length} videos with ${errors.length} errors: ${errors.join(', ')}`,
+                    processedVideos
+                };
+            }
+            return {
+                success: true,
+                message: `Successfully made ${processedVideos.length} videos public`,
+                processedVideos
+            };
+        }
+        catch (error) {
+            this.logger.error('Error making all videos public:', error);
+            throw error;
+        }
+    }
+    async listVideoFolders() {
+        try {
+            const [files] = await config_1.bucket.getFiles({
+                prefix: 'videos/'
+            });
+            const folders = new Set();
+            files.forEach(file => {
+                const pathParts = file.name.split('/');
+                if (pathParts.length >= 2) {
+                    folders.add(pathParts[1]);
+                }
+            });
+            const folderList = Array.from(folders);
+            return {
+                success: true,
+                folders: folderList
+            };
+        }
+        catch (error) {
+            this.logger.error('Error listing video folders:', error);
+            throw error;
+        }
+    }
+    async checkVideoAccess(folderName) {
+        try {
+            const [files] = await config_1.bucket.getFiles({
+                prefix: `videos/${folderName}/`
+            });
+            if (files.length === 0) {
+                throw new Error(`No files found for video: ${folderName}`);
+            }
+            const publicFiles = [];
+            const privateFiles = [];
+            for (const file of files) {
+                const [metadata] = await file.getMetadata();
+                const isPublic = metadata.acl?.some(entry => entry.entity === 'allUsers' && entry.role === 'READER');
+                if (isPublic) {
+                    publicFiles.push(file.name);
+                }
+                else {
+                    privateFiles.push(file.name);
+                }
+            }
+            const isFullyPublic = privateFiles.length === 0;
+            return {
+                success: true,
+                isPublic: isFullyPublic,
+                publicFiles,
+                privateFiles,
+                message: isFullyPublic
+                    ? `All ${publicFiles.length} files are public`
+                    : `${publicFiles.length} files are public, ${privateFiles.length} files are private`
+            };
+        }
+        catch (error) {
+            this.logger.error(`Error checking access for ${folderName}:`, error);
+            throw error;
+        }
+    }
+    async forceMakeVideoPublic(folderName, maxRetries = 3) {
+        let lastError;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                this.logger.log(`Force making public attempt ${attempt}/${maxRetries} for: ${folderName}`);
+                const result = await this.makeVideoFilesPublic(folderName);
+                const accessCheck = await this.checkVideoAccess(folderName);
+                if (!accessCheck.isPublic) {
+                    throw new Error(`Files still not public after makePublic call: ${accessCheck.privateFiles.join(', ')}`);
+                }
+                this.logger.log(`✅ Successfully force made ${folderName} public on attempt ${attempt}`);
+                return {
+                    success: true,
+                    message: `Video '${folderName}' is now publicly accessible with ${result.files.length} files`
+                };
+            }
+            catch (error) {
+                lastError = error;
+                this.logger.warn(`Attempt ${attempt} failed: ${error.message}`);
+                if (attempt < maxRetries) {
+                    const retryDelay = 1000 * attempt;
+                    this.logger.log(`Retrying in ${retryDelay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                }
+            }
+        }
+        throw new Error(`Failed to make ${folderName} public after ${maxRetries} attempts: `);
+    }
     async transcodeToHLSAndUpload(fileBuffer, filename) {
         const videoId = (0, uuid_1.v4)();
         const tempDir = path.join(os.tmpdir(), 'mboko-fit-uploads', videoId);

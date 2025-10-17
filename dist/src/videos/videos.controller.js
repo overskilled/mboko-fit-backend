@@ -33,6 +33,85 @@ let VideosController = class VideosController {
             throw new common_1.BadRequestException('File is required');
         return this.videosService.transcodeToHLSAndUpload(file.buffer, fileName);
     }
+    async makeVideoPublic(name) {
+        if (!name) {
+            throw new common_1.BadRequestException('Video name is required');
+        }
+        try {
+            const result = await this.videosService.makeVideoFilesPublic(name);
+            return {
+                success: result.success,
+                message: result.message,
+                files: result.files,
+                fileCount: result.files.length
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException(`Failed to make video public: ${error.message}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    async forceMakeVideoPublic(name) {
+        if (!name) {
+            throw new common_1.BadRequestException('Video name is required');
+        }
+        try {
+            const result = await this.videosService.forceMakeVideoPublic(name);
+            return {
+                success: result.success,
+                message: result.message
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException(`Failed to force make video public: ${error.message}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    async makeAllVideosPublic() {
+        try {
+            const result = await this.videosService.makeAllVideosPublic();
+            return {
+                success: result.success,
+                message: result.message,
+                processedVideos: result.processedVideos,
+                processedCount: result.processedVideos.length
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException(`Failed to make all videos public: ${error.message}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    async listVideos() {
+        try {
+            const result = await this.videosService.listVideoFolders();
+            return {
+                success: result.success,
+                folders: result.folders,
+                count: result.folders.length
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException(`Failed to list videos: ${error.message}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    async checkVideoAccess(name) {
+        if (!name) {
+            throw new common_1.BadRequestException('Video name is required');
+        }
+        try {
+            const result = await this.videosService.checkVideoAccess(name);
+            return {
+                success: result.success,
+                isPublic: result.isPublic,
+                publicFiles: result.publicFiles,
+                privateFiles: result.privateFiles,
+                message: result.message,
+                publicCount: result.publicFiles.length,
+                privateCount: result.privateFiles.length
+            };
+        }
+        catch (error) {
+            throw new common_1.HttpException(`Failed to check video access: ${error.message}`, common_1.HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
 };
 exports.VideosController = VideosController;
 __decorate([
@@ -51,6 +130,39 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", Promise)
 ], VideosController.prototype, "uploadVideo", null);
+__decorate([
+    (0, common_1.Post)('make-public'),
+    __param(0, (0, common_1.Query)('name')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], VideosController.prototype, "makeVideoPublic", null);
+__decorate([
+    (0, common_1.Post)('force-make-public'),
+    __param(0, (0, common_1.Query)('name')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], VideosController.prototype, "forceMakeVideoPublic", null);
+__decorate([
+    (0, common_1.Post)('make-all-public'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], VideosController.prototype, "makeAllVideosPublic", null);
+__decorate([
+    (0, common_1.Get)('list'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], VideosController.prototype, "listVideos", null);
+__decorate([
+    (0, common_1.Get)('check-access'),
+    __param(0, (0, common_1.Query)('name')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], VideosController.prototype, "checkVideoAccess", null);
 exports.VideosController = VideosController = __decorate([
     (0, common_1.Controller)('videos'),
     __metadata("design:paramtypes", [videos_service_1.VideosService])
