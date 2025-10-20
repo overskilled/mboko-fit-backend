@@ -5,7 +5,7 @@ export class SignUpDto {
   @ApiProperty({ description: 'User first name' })
   @IsString()
   firstName: string;
-
+  
   @ApiProperty({ description: 'User last name' })
   @IsString()
   lastName: string;

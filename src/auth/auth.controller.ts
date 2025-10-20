@@ -10,6 +10,7 @@ import { SignInDto } from './signin.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  
   @Post('signup')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new user account' })
